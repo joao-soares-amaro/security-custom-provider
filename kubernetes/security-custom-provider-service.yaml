@@ -1,0 +1,12 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: __APP_NAME__-service
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: __APP_NAME__
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080

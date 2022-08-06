@@ -1,0 +1,18 @@
+{
+  "branches": ["master"],
+  "plugins": [
+    ["@semantic-release/commit-analyzer", {
+      "preset": "angular",
+      "releaseRules": [
+        {"type": "refactor", "release": "patch"},
+        {"scope": "no-release", "release": false}
+      ],
+      "parserOpts": {
+        "noteKeywords": ["BREAKING CHANGE", "BREAKING CHANGES"]
+      }
+    }],
+    "@semantic-release/release-notes-generator",
+    "@semantic-release/github",
+    "@conveyal/maven-semantic-release"
+  ]
+}

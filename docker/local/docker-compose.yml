@@ -1,0 +1,25 @@
+version: '3.3'
+
+services:
+  security-custom-provider:
+    container_name: security-custom-provider
+    build:
+      context: .
+      dockerfile: ../../Dockerfile
+    image: security-custom-provider
+    environment:
+      - DD_AGENT_HOST
+      - DD_TRACE_AGENT_PORT
+      - AWS_FIREHOSE_CLIENT_ID
+      - AWS_FIREHOSE_CLIENT_SECRET
+    ports:
+      - "8080:8080"
+      - "443:443"
+    networks:
+      - security-custom-provider-network
+
+networks:
+  security-custom-provider-network:
+    driver: bridge
+    ipam:
+      driver: default

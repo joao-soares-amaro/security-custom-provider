@@ -1,0 +1,256 @@
+name: Pipeline Dev
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on: workflow_dispatch
+
+env:
+  AWS_REGION: us-east-1
+  APP_NAMESPACE: example
+  APP_NAME: security-custom-provider
+  ENV_TAG: dev
+  RELEASE_REVISION: '${{ github.run_number }}'
+  # dev vars
+  AWS_DEV_ACCESS_KEY_ID: ${{ secrets.AWS_DEV_ACCESS_KEY_ID }}
+  AWS_DEV_SECRET_ACCESS_KEY: ${{ secrets.AWS_DEV_SECRET_ACCESS_KEY }}
+  AWS_DEV_ACCOUNT_ID: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+  KUBE_CONFIG_DATA: ${{ secrets.AWS_DEV_EKS_KUBE_CONFIG }}
+  #prod vars
+  AWS_PROD_ACCESS_KEY_ID: ${{ secrets.AWS_PROD_ACCESS_KEY_ID }}
+  AWS_PROD_SECRET_ACCESS_KEY: ${{ secrets.AWS_PROD_SECRET_ACCESS_KEY }}
+  AWS_PROD_ACCOUNT_ID: ${{ secrets.AWS_PROD_ACCOUNT_ID }}
+  SLACK_CHANNEL_ID: C038ZRXV3V4
+
+jobs:
+  test-stage-1:
+    name: Teste Stage 1
+    runs-on: [tester-prod]
+    timeout-minutes: 15
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 11
+        uses: actions/setup-java@v1
+        with:
+          java-version: 11
+
+      - name: Set up Maven
+        uses: stCarolas/setup-maven@v4
+        with:
+          maven-version: 3.8.2
+
+      - name: Cache SonarQube packages
+        uses: actions/cache@v1
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Cache Maven packages
+        uses: actions/cache@v1
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Unit tests
+        run: mvn -B clean jacoco:prepare-agent verify jacoco:report
+
+      - name: Sonarqube Scan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.qualitygate.wait=true
+
+  deploy-kubernetes-dev:
+    name: Deploy Kubernetes DEV
+    needs: test-stage-1
+    runs-on: [deployer-dev]
+    timeout-minutes: 25
+    outputs:
+      LAST_POD: ${{ env.LAST_POD }}
+    steps:
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ env.AWS_PROD_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_PROD_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Install AWS CLI
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          sudo unzip awscliv2.zip
+          sudo ./aws/install
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Extract branch name
+        uses: vazco/github-actions-branch-name@v1
+        id: branch
+
+      - name: Build ECR Image
+        uses: smu-chile/aws-ecr-policy-action@master
+        with:
+          access_key_id: ${{ env.AWS_PROD_ACCESS_KEY_ID }}
+          secret_access_key: ${{ env.AWS_PROD_SECRET_ACCESS_KEY }}
+          ecr_registry: ${{ steps.login-ecr.outputs.registry }}
+          repo: ${{ env.APP_NAME }}
+          region: ${{ env.AWS_REGION }}
+          tags: ${{ steps.branch.outputs.branch_name }}-${{ github.run_number }}
+          create_repo: true
+          create_policy: true
+          scan_images: true
+          ecr_policies: untagged:1 any:20
+
+      - name: Create AWS ECR Policy
+        run: aws ecr set-repository-policy --repository-name ${{ env.APP_NAME }} --policy-text "{\"Version\":\"2008-10-17\",\"Statement\":[{\"Sid\":\"AllowDevAccount\",\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"arn:aws:iam::629848764789:root\"},\"Action\":[\"ecr:GetDownloadUrlForLayer\",\"ecr:BatchGetImage\",\"ecr:BatchCheckLayerAvailability\",\"ecr:PutImage\",\"ecr:InitiateLayerUpload\",\"ecr:UploadLayerPart\",\"ecr:CompleteLayerUpload\"]}]}"
+
+      
+      - name: Replace K8s files
+        env:
+          RELEASE_IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ env.APP_NAME }}:${{ steps.branch.outputs.branch_name }}-${{ github.run_number }}
+          VERSION: ${{ steps.branch.outputs.branch_name }}-${{ github.run_number }}
+        run: |
+          sed -i 's|__IMAGE__|${{ env.RELEASE_IMAGE }}|g' kubernetes/*.yaml
+          sed -i 's|__NAMESPACE__|${{ env.APP_NAMESPACE }}|g' kubernetes/*.yaml
+          sed -i 's|__APP_NAME__|${{ env.APP_NAME }}|g' kubernetes/*.yaml
+          sed -i 's|__MIN_REPLICAS__|1|g' kubernetes/*.yaml
+          sed -i 's|__MAX_REPLICAS__|1|g' kubernetes/*.yaml
+          sed -i 's|__ENVIRONMENT__|dev|g' kubernetes/*.yaml
+          sed -i 's|__ENV_TAG__|dev|g' kubernetes/*.yaml
+          sed -i 's|__DNS__|dev.amaro.pro|g' kubernetes/*.yaml
+          sed -i 's|__VERSION__|${{ env.VERSION }}|g' kubernetes/*.yaml
+
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ env.AWS_DEV_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_DEV_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Kubectl
+        uses: ThomasKliszowski/setup-kubectl@v1
+        with:
+          kube-config: ${{ env.KUBE_CONFIG_DATA }}
+          kube-version: 1.15.0
+
+      - name: Create NS
+        run: kubectl apply -f kubernetes/*-namespace.yaml
+
+      - name: Create Secret
+        run: kubectl create secret generic ${{ env.APP_NAME }}-secret --from-literal=password=Changepwd -n ${{ env.APP_NAMESPACE }}
+        continue-on-error: true
+
+      - name: Apply configmap to Kubernetes cluster
+        run: kubectl apply -f kubernetes/*-configmap-dev.yaml
+
+      - name: Apply deployment to Kubernetes cluster
+        run: kubectl apply -f kubernetes/*-deployment.yaml
+
+      - name: Apply service to Kubernetes cluster
+        run: kubectl apply -f kubernetes/*-service.yaml
+
+      - name: Apply ingress to Kubernetes cluster
+        run: kubectl apply -f kubernetes/*-ingress.yaml
+
+      - name: Apply HPA to Kubernetes cluster
+        run: kubectl apply -f kubernetes/*-hpa.yaml
+
+      - name: Get the most recently pod
+        run: echo "LAST_POD=$(kubectl get pods -n ${{ env.APP_NAMESPACE }} --sort-by=.metadata.creationTimestamp | grep ${{ env.APP_NAME }} | awk 'END{{ print $1 }}')" >> $GITHUB_ENV
+
+      - name: Verify Kubernetes deployment
+        timeout-minutes: 10
+        id: verify-k8s
+        run: kubectl rollout status deploy ${{ env.APP_NAME }}-deployment -n $APP_NAMESPACE
+
+      - name: View the logs here
+        if: ${{ failure() && steps.verify-k8s.conclusion == 'failure' }}
+        run: |
+          echo "Deploy FAILED, view the logs of the unhealthy pod here: https://kubedash.dev.amaro.pro/#/log/devops/${{ env.LAST_POD }}/pod?namespace=${{ env.APP_NAMESPACE }}&container=${{ env.APP_NAME }}"
+          exit 1
+
+  test-stage-2: #Secundary tests
+    name: Teste Stage 2
+    needs: [test-stage-1, deploy-kubernetes-dev]
+    runs-on: [deployer-dev]
+    timeout-minutes: 10
+    steps:
+      - name: Integration tests
+        run: echo --- RUNNING INTEGRATION TESTS ---
+
+      - name: Stress tests
+        run: echo --- RUNNING STRESS TESTS ---
+
+  slack-notification:
+    name: Slack notification
+    runs-on: [deployer-dev]
+    needs: [test-stage-1, test-stage-2, deploy-kubernetes-dev]
+    if: always()
+    steps:
+      - name: Extract branch name
+        uses: vazco/github-actions-branch-name@v1
+        id: branch
+
+      - name: Notify on Slack failure on test-stage-1
+        uses: slackapi/slack-github-action@v1.15.0
+        if: needs.test-stage-1.result == 'failure' && needs.deploy-kubernetes-dev.result == 'skipped' && needs.test-stage-2.result == 'skipped'
+        with:
+          channel-id: ${{ env.SLACK_CHANNEL_ID }} 
+          slack-message: |
+            *Erro na pipeline:*
+            Erro no TEST-STAGE-1.
+            *Aplicação:* 
+            ${{ env.APP_NAME }}
+            *Versão:*
+            ${{ steps.branch.outputs.branch_name }}-${{ github.run_number }}
+        env:                                                                                                                                                                                                         
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} 
+
+      - name: Notify on Slack failure on deploy
+        if: needs.deploy-kubernetes-dev.result == 'failure' || needs.test-stage-2.result == 'failure'
+        uses: slackapi/slack-github-action@v1.15.0
+        with:
+          channel-id: ${{ env.SLACK_CHANNEL_ID }}
+          slack-message: | 
+            *Erro na pipeline:*
+            Erro no deploy em DEV.
+            *Aplicação:* 
+            ${{ env.APP_NAME }}
+            *Versão:*
+            ${{ steps.branch.outputs.branch_name }}-${{ github.run_number }}
+            *Veja os logs do pod mais recente de DEV através desse link:*
+            https://kubedash.dev.amaro.pro/#/log/devops/${{ needs.deploy-kubernetes-dev.outputs.LAST_POD }}/pod?namespace=${{ env.APP_NAMESPACE }}&container=${{ env.APP_NAME }}
+        env:                                                                                                          
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+      - name: Notify on Slack pipeline success
+        if: needs.test-stage-1.result == 'success' && needs.deploy-kubernetes-dev.result == 'success' && needs.test-stage-2.result == 'success'
+        uses: slackapi/slack-github-action@v1.15.0
+        with:
+          channel-id: ${{ env.SLACK_CHANNEL_ID }}
+          slack-message: | 
+            *Deploy realizado:*
+            Enviado por <https://github.com/${{ github.actor }}|${{ github.actor }}>
+            *Aplicação:*
+            ${{ env.APP_NAME }}
+            *Versão:*
+            ${{ steps.branch.outputs.branch_name }}-${{ github.run_number }}
+            *Acessível em:*
+            https://${{ env.APP_NAME }}.dev.amaro.pro/
+        env:                                                                                                          
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}

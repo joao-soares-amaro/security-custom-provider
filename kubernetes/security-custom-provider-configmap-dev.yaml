@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: __APP_NAME__-config
+  namespace: __NAMESPACE__
+data:
+  DD_AGENT_VERSION: ""
+  DD_ENV: "dev"
+  DD_SITE: "datadoghq.com"
+  MANAGEMENT_HEALTH_JMS_ENABLED: "false"
+  DD_SERVICE_MAPPING: "java-aws-sdk:__APP_NAME__,redis:__APP_NAME__,mongo:__APP_NAME__"
+  SERVER_PORT: "8080"
+  JAVA_TOOL_OPTIONS: "-Xmx448m -Xms128m"

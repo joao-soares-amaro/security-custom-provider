@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: __APP_NAME__-ingress
+  namespace: __NAMESPACE__
+  annotations:
+  # cert-manager.io/cluster-issuer: letsencrypt-__ENVIRONMENT__
+  # acme.cert-manager.io/http01-edit-in-place: "true"
+spec:
+  ingressClassName: nginx-private
+  rules:
+    - host: __APP_NAME__.__DNS__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: __APP_NAME__-service
+                port:
+                  number: 8080
+  # tls:
+  # - hosts:
+  #   - __APP_NAME__.__DNS__
+  #   secretName: __APP_NAME__-ingress-cert

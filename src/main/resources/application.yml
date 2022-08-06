@@ -1,0 +1,28 @@
+server:
+  port: 8080
+  error:
+    include-binding-errors: always
+
+springdoc:
+  show-actuator: true
+  writer-with-default-pretty-printer: true
+  swagger-ui:
+    path: /swagger-ui.html
+    urls:
+      - url: /openapi.yml
+        name: v0
+
+authorization:
+  secure:
+    - path: /hello
+      methods: # options: ["*", GET, POST, PUT, DELETE, HEAD, OPTIONS]
+        - GET
+      roles:
+        - ADMIN
+
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_kd96HYjkx

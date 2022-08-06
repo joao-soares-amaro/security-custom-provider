@@ -1,0 +1,63 @@
+openapi: 3.0.3
+info:
+  title: @name@
+  version: @version@
+tags:
+  - name: Actuator
+    description: Monitor and interact
+    externalDocs:
+      description: Spring Boot Actuator Web API Documentation
+      url: https://docs.spring.io/spring-boot/docs/current/actuator-api/html/
+  - name: Examples
+    description: Example of Group of Endpoints
+paths:
+  /actuator/health:
+    get:
+      operationId: health
+      summary: |
+        The health endpoint provides detailed information about the health of the application.
+      tags:
+        - Actuator
+      responses:
+        '200':
+          description: |
+            OK.
+            
+            Returns UP or DOWN.
+          content:
+            'application/json':
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    description: Overall status of the application.
+              examples:
+                up:
+                  $ref: "#/components/examples/actuator-health-up"
+                down:
+                  $ref: "#/components/examples/actuator-health-down"
+  /hello:
+    get:
+      tags:
+        - Examples
+      operationId: hello
+      responses:
+        '200':
+          description: Example of Group of Endpoints that returns hello text
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Hi! I am on air.
+
+components:
+  examples:
+    actuator-health-up:
+      summary: "UP"
+      value:
+        status: "UP"
+    actuator-health-down:
+      summary: "DOWN"
+      value:
+        status: "DOWN"
