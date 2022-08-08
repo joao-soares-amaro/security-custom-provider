@@ -39,6 +39,8 @@ paths:
                   $ref: "#/components/examples/actuator-health-down"
   /hello:
     get:
+      security:
+        - bearerAuth: []
       tags:
         - Examples
       operationId: hello
@@ -49,9 +51,29 @@ paths:
             text/plain:
               schema:
                 type: string
-                example: Hi! I am on air.
+                example: Hi! I am on air
+  /forbidden:
+    get:
+      security:
+        - bearerAuth: []
+      tags:
+        - Examples
+      operationId: hello
+      responses:
+        '200':
+          description: Example of Group of Endpoints that returns forbidden
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: You should not be able to see this message
 
 components:
+  securitySchemes:
+    bearerAuth:            # arbitrary name for the security scheme
+      type: http
+      scheme: bearer
+      bearerFormat: JWT    # optional, arbitrary value for documentation purposes
   examples:
     actuator-health-up:
       summary: "UP"
@@ -61,3 +83,6 @@ components:
       summary: "DOWN"
       value:
         status: "DOWN"
+
+security:
+  - bearerAuth: []

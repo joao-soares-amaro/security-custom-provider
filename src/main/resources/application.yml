@@ -19,6 +19,12 @@ authorization:
         - GET
       roles:
         - ADMIN
+    - path: /forbidden
+      methods: # options: ["*", GET, POST, PUT, DELETE, HEAD, OPTIONS]
+        - GET
+      roles:
+        - USER
+
 
 spring:
   security:

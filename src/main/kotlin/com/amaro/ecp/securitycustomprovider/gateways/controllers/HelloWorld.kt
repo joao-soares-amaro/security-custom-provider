@@ -12,4 +12,10 @@ class HelloWorld {
     fun hello(): String {
         return "Hi! I am on air."
     }
+
+    @GetMapping("forbidden")
+    @ResponseStatus(HttpStatus.OK)
+    fun forbidden(): String {
+        return "You should not be able to see this message"
+    }
 }
